@@ -40,10 +40,7 @@ public class BookCommand extends Command {
         String args = text.replaceFirst("(?i)^/book\\s*", "").trim().toLowerCase();
 
         if (args.isEmpty()) {
-            return new SendMessage(chatId,
-                    "Укажи тип помещения:\n" +
-                    "  /book classroom — аудитории\n" +
-                    "  /book coworking — коворкинги");
+            return RoomMenuHelper.typeMenu(chatId, "book", "Что бронируем?");
         }
 
         String[] parts = args.split("\\s+", 2);
@@ -51,13 +48,14 @@ public class BookCommand extends Command {
         String building = parts.length > 1 ? parts[1].toUpperCase() : null;
 
         if (!type.equals("classroom") && !type.equals("coworking")) {
-            return new SendMessage(chatId, "Неверный тип. Используй classroom или coworking.");
+            return RoomMenuHelper.typeMenu(chatId, "book", "Неверный тип. Выбери:");
         }
 
         String roomType = type.equals("classroom") ? "CLASSROOM" : "COWORKING";
+        String label = type.equals("classroom") ? "Аудитории" : "Коворкинги";
         List<RoomDto> all = client.getRooms().stream()
                 .filter(r -> r.getType().equals(roomType))
-                .filter(r -> !(r.isTeacherOnly() && role == PersonRole.STUDENT))
+                .filter(r -> r.isVisibleTo(role))
                 .collect(Collectors.toList());
 
         if (all.isEmpty()) {
@@ -65,8 +63,7 @@ public class BookCommand extends Command {
         }
 
         if (building == null) {
-            String label = type.equals("classroom") ? "Аудитории" : "Коворкинги";
-            return new SendMessage(chatId, RoomMenuHelper.buildBuildingMenu(label, "book", type, all));
+            return RoomMenuHelper.buildingMenu(chatId, label, "book", type, all);
         }
 
         String prefix = building + "-";
@@ -75,18 +72,15 @@ public class BookCommand extends Command {
                 .collect(Collectors.toList());
 
         if (filtered.isEmpty()) {
-            return new SendMessage(chatId, "Помещения не найдены для корпуса: " + building);
+            return RoomMenuHelper.buildingMenu(chatId, "Помещения не найдены для корпуса " + building + ". " + label,
+                    "book", type, all);
         }
 
         String buildingName = RoomMenuHelper.BUILDING_NAMES.getOrDefault(building, building);
-        String label = roomType.equals("CLASSROOM") ? "Аудитории" : "Коворкинги";
-        StringBuilder sb = new StringBuilder(label + " (" + buildingName + "):\n\n");
-        for (RoomDto r : filtered) {
-            sb.append(RoomMenuHelper.formatRoomLine(r)).append("\n");
-        }
-        sb.append("\nВведи ID комнаты:");
 
         stateService.updateContext(chatId, ctx -> ctx.setState(State.BOOK_ROOM));
-        return new SendMessage(chatId, sb.toString().trim());
+        return RoomMenuHelper.roomMenu(chatId, label + " (" + buildingName + "):", filtered,
+                "Выбери комнату (или введи её ID):",
+                RoomDto::getId);
     }
 }

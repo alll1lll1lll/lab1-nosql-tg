@@ -22,7 +22,7 @@ public class TelegramConfiguration {
         return builder.additionalInterceptors((request, body, execution) -> {
             String personId = PersonIdContext.get();
             if (personId != null) {
-                request.getHeaders().set("X-Person-Id", personId);
+                request.getHeaders().set("Person-Id", personId);
             }
             return execution.execute(request, body);
         }).build();

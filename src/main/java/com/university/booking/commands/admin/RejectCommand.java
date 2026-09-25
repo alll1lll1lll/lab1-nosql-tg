@@ -44,7 +44,7 @@ public class RejectCommand extends Command {
         if (id.isBlank()) {
             return new SendMessage(chatId, "Укажи ID брони: /reject <id>");
         }
-        BookingDto booking = client.rejectBooking(id, ctx.getPersonId());
+        BookingDto booking = client.rejectBooking(id);
         return new SendMessage(chatId, "Бронирование отклонено.\nСтатус: " + booking.getStatus());
     }
 }

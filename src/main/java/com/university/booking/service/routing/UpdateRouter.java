@@ -23,9 +23,8 @@ public class UpdateRouter {
     private final CommandParser parser;
     private final CommandMenuService commandMenuService;
 
-    public SendMessage route(Update update) {
-        long chatId = update.message().chat().id();
-        String text = update.message().text().trim();
+    public SendMessage route(Update update, long chatId, String rawText) {
+        String text = rawText.trim();
 
         ensureAdminMenuSet(chatId);
         PersonIdContext.set(stateService.get(chatId).getPersonId());

@@ -1,19 +1,28 @@
 package com.university.booking.service.dialog;
 
+import com.pengrad.telegrambot.model.request.InlineKeyboardButton;
+import com.pengrad.telegrambot.model.request.InlineKeyboardMarkup;
 import com.pengrad.telegrambot.request.SendMessage;
 import com.university.booking.client.BackendClient;
-import com.university.booking.dto.BookingCreateRequest;
-import com.university.booking.dto.BookingDto;
+import com.university.booking.commands.user.CartFormatter;
+import com.university.booking.dto.CartDto;
+import com.university.booking.dto.CartItemRequest;
 import com.university.booking.dto.CategoryDto;
 import com.university.booking.dto.RoomDto;
-import com.university.booking.enums.PersonRole;
+import com.university.booking.dto.RoomScheduleDto;
 import com.university.booking.exception.ResourceNotFoundException;
 import com.university.booking.state.Context;
 import com.university.booking.state.State;
+import com.university.booking.ui.Buttons;
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
+import java.time.format.TextStyle;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -22,6 +31,12 @@ import org.springframework.stereotype.Component;
 @Component
 @RequiredArgsConstructor
 public class BookingDialogHandler implements DialogStageHandler {
+
+    private static final List<LocalTime> PAIR_STARTS = times("08:20", "10:00", "11:40", "13:30", "15:20", "17:00", "18:40", "20:20");
+    private static final List<LocalTime> PAIR_ENDS = times("09:50", "11:30", "13:10", "15:00", "16:50", "18:30", "20:10", "21:50");
+    private static final int DATE_BUTTONS_DAYS = 7;
+    private static final DateTimeFormatter DAY_MONTH = DateTimeFormatter.ofPattern("dd.MM");
+    private static final Locale RU = Locale.forLanguageTag("ru");
 
     private final BackendClient client;
     private final StateService stateService;
@@ -55,10 +70,9 @@ public class BookingDialogHandler implements DialogStageHandler {
     private SendMessage handleRoom(long chatId, String roomId) {
         try {
             RoomDto room = client.getRoom(roomId);
-            Context ctx = stateService.get(chatId);
-            if (room.isTeacherOnly() && ctx.getPersonRole() == PersonRole.STUDENT) {
-                return new SendMessage(chatId,
-                        "Эта комната доступна только для преподавателей. Введи другой ID:");
+
+            if (!room.isVisibleTo(stateService.get(chatId).getPersonRole())) {
+                throw new ResourceNotFoundException(roomId);
             }
         } catch (ResourceNotFoundException e) {
             return new SendMessage(chatId,
@@ -74,19 +88,30 @@ public class BookingDialogHandler implements DialogStageHandler {
             ctx.setBookRoomId(roomId);
             ctx.setState(State.BOOK_CATEGORY);
         });
-        StringBuilder sb = new StringBuilder("Категории:\n\n");
+        return categoryMenu(chatId, "Выбери категорию:", cats);
+    }
+
+    private SendMessage categoryMenu(long chatId, String prompt, List<CategoryDto> cats) {
+        StringBuilder sb = new StringBuilder(prompt).append("\n\n");
         for (CategoryDto c : cats) {
-            sb.append("ID: ").append(c.getId()).append(" — ").append(c.getName());
+            sb.append("• ").append(c.getName());
             if (c.getDescription() != null && !c.getDescription().isBlank()) {
-                sb.append(" (").append(c.getDescription()).append(")");
+                sb.append(" — ").append(c.getDescription());
             }
             sb.append("\n");
         }
-        sb.append("\nВведи ID категории:");
-        return new SendMessage(chatId, sb.toString());
+        List<InlineKeyboardButton> buttons = cats.stream()
+                .map(c -> Buttons.button(c.getName(), c.getId()))
+                .toList();
+        return new SendMessage(chatId, sb.toString().trim()).replyMarkup(Buttons.grid(buttons, 2));
     }
 
     private SendMessage handleCategory(long chatId, String categoryId) {
+        List<CategoryDto> cats = client.getCategories();
+        boolean exists = cats.stream().anyMatch(c -> c.getId().equals(categoryId));
+        if (!exists) {
+            return categoryMenu(chatId, "Категория «" + categoryId + "» не найдена. Выбери из списка:", cats);
+        }
         stateService.updateContext(chatId, ctx -> {
             ctx.setBookCategoryId(categoryId);
             ctx.setState(State.BOOK_EVENT_NAME);
@@ -99,20 +124,24 @@ public class BookingDialogHandler implements DialogStageHandler {
             ctx.setBookEventName(name);
             ctx.setState(State.BOOK_DATE);
         });
-        return new SendMessage(chatId, "Введи дату в формате ГГГГ-ММ-ДД:");
+        return datePrompt(chatId, "Выбери дату или введи её в формате ГГГГ-ММ-ДД:");
     }
 
     private SendMessage handleDate(long chatId, String text) {
+        LocalDate date;
         try {
-            LocalDate date = LocalDate.parse(text);
-            stateService.updateContext(chatId, ctx -> {
-                ctx.setBookDate(date);
-                ctx.setState(State.BOOK_START_TIME);
-            });
-            return new SendMessage(chatId, "Введи время начала в формате ЧЧ:ММ:");
+            date = LocalDate.parse(text);
         } catch (DateTimeParseException e) {
-            return new SendMessage(chatId, "Неверный формат. Введи дату как ГГГГ-ММ-ДД:");
+            return datePrompt(chatId, "Неверный формат. Выбери дату или введи её как ГГГГ-ММ-ДД:");
         }
+        String roomId = stateService.get(chatId).getBookRoomId();
+        RoomScheduleDto schedule = client.getRoomSchedule(roomId, date);
+        stateService.updateContext(chatId, ctx -> {
+            ctx.setBookDate(date);
+            ctx.setState(State.BOOK_START_TIME);
+        });
+        return timePrompt(chatId, "Занятость " + roomId + " на " + date + ": " + schedule.formatBusy()
+                + "\n\nВыбери время начала или введи его в формате ЧЧ:ММ:", PAIR_STARTS);
     }
 
     private SendMessage handleStartTime(long chatId, String text) {
@@ -122,9 +151,10 @@ public class BookingDialogHandler implements DialogStageHandler {
                 ctx.setBookStartTime(time);
                 ctx.setState(State.BOOK_END_TIME);
             });
-            return new SendMessage(chatId, "Введи время окончания в формате ЧЧ:ММ:");
+            List<LocalTime> ends = PAIR_ENDS.stream().filter(t -> t.isAfter(time)).toList();
+            return timePrompt(chatId, "Выбери время окончания или введи его в формате ЧЧ:ММ:", ends);
         } catch (DateTimeParseException e) {
-            return new SendMessage(chatId, "Неверный формат. Введи время как ЧЧ:ММ:");
+            return timePrompt(chatId, "Неверный формат. Выбери время начала или введи его как ЧЧ:ММ:", PAIR_STARTS);
         }
     }
 
@@ -137,7 +167,9 @@ public class BookingDialogHandler implements DialogStageHandler {
             });
             return new SendMessage(chatId, "Введи количество участников:");
         } catch (DateTimeParseException e) {
-            return new SendMessage(chatId, "Неверный формат. Введи время как ЧЧ:ММ:");
+            LocalTime start = stateService.get(chatId).getBookStartTime();
+            List<LocalTime> ends = PAIR_ENDS.stream().filter(t -> t.isAfter(start)).toList();
+            return timePrompt(chatId, "Неверный формат. Выбери время окончания или введи его как ЧЧ:ММ:", ends);
         }
     }
 
@@ -159,8 +191,7 @@ public class BookingDialogHandler implements DialogStageHandler {
     }
 
     private SendMessage handlePhone(long chatId, String phone, Context ctx) {
-        BookingCreateRequest req = BookingCreateRequest.builder()
-                .personId(ctx.getPersonId())
+        CartItemRequest req = CartItemRequest.builder()
                 .roomId(ctx.getBookRoomId())
                 .categoryId(ctx.getBookCategoryId())
                 .eventName(ctx.getBookEventName())
@@ -170,15 +201,47 @@ public class BookingDialogHandler implements DialogStageHandler {
                 .participantCount(ctx.getBookParticipants())
                 .contactPhone(phone)
                 .build();
-        BookingDto booking = client.createBooking(req);
-        stateService.reset(chatId);
+        CartDto cart;
+        try {
+            cart = client.addToCart(req);
+        } finally {
+            stateService.reset(chatId);
+        }
         log.atInfo()
-                .addKeyValue("event", "booking_created")
-                .addKeyValue("booking_id", booking.getId())
+                .addKeyValue("event", "cart_item_added")
+                .addKeyValue("cart_size", cart.getItems().size())
                 .addKeyValue("chat_id", chatId)
-                .log("booking created successfully");
-        return new SendMessage(chatId, "Бронь создана!\nID: " + booking.getId()
-                + "\nСтатус: " + booking.getStatus()
-                + "\n\nЧтобы отправить на рассмотрение:\n/submit " + booking.getId());
+                .log("booking added to cart");
+        return new SendMessage(chatId, "Заявка добавлена во временную корзину.\n"
+                + "Позиций в корзине: " + cart.getItems().size()
+                + "\nКорзина удалится автоматически через " + CartFormatter.formatTtl(cart.getTtlSeconds())
+                + ", если её не оформить.")
+                .replyMarkup(CartFormatter.cartActions());
+    }
+
+    private SendMessage datePrompt(long chatId, String prompt) {
+        LocalDate today = LocalDate.now();
+        List<InlineKeyboardButton> buttons = new ArrayList<>();
+        for (int i = 0; i < DATE_BUTTONS_DAYS; i++) {
+            LocalDate date = today.plusDays(i);
+            String weekday = date.getDayOfWeek().getDisplayName(TextStyle.SHORT, RU);
+            buttons.add(Buttons.button(weekday + " " + date.format(DAY_MONTH), date.toString()));
+        }
+        return new SendMessage(chatId, prompt).replyMarkup(Buttons.grid(buttons, 4));
+    }
+
+    private SendMessage timePrompt(long chatId, String prompt, List<LocalTime> options) {
+        if (options.isEmpty()) {
+            return new SendMessage(chatId, prompt);
+        }
+        List<InlineKeyboardButton> buttons = options.stream()
+                .map(t -> Buttons.button(t.toString(), t.toString()))
+                .toList();
+        InlineKeyboardMarkup keyboard = Buttons.grid(buttons, 4);
+        return new SendMessage(chatId, prompt).replyMarkup(keyboard);
+    }
+
+    private static List<LocalTime> times(String... values) {
+        return Arrays.stream(values).map(LocalTime::parse).toList();
     }
 }

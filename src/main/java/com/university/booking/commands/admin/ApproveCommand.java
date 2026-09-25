@@ -44,7 +44,7 @@ public class ApproveCommand extends Command {
         if (id.isBlank()) {
             return new SendMessage(chatId, "Укажи ID брони: /approve <id>");
         }
-        BookingDto booking = client.approveBooking(id, ctx.getPersonId());
+        BookingDto booking = client.approveBooking(id);
         return new SendMessage(chatId, "Бронирование одобрено!\nСтатус: " + booking.getStatus());
     }
 }

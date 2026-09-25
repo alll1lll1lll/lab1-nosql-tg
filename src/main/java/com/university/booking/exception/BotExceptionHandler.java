@@ -13,7 +13,13 @@ public class BotExceptionHandler {
         if (ex instanceof AccessDeniedException e) return handleAccessDenied(chatId, e);
         if (ex instanceof ResourceNotFoundException e) return handleNotFound(chatId, e);
         if (ex instanceof BackendException e) return handleBackend(chatId, e);
+        if (ex instanceof BotException e) return handleRejected(chatId, e);
         return handleUnexpected(chatId, ex);
+    }
+
+    private SendMessage handleRejected(long chatId, BotException ex) {
+        log.atInfo().addKeyValue("chat_id", chatId).log("request rejected: {}", ex.getMessage());
+        return new SendMessage(chatId, ex.getMessage());
     }
 
     private SendMessage handleNotRegistered(long chatId, NotRegisteredException ex) {
@@ -42,6 +48,6 @@ public class BotExceptionHandler {
                 .addKeyValue("exception", ex.getClass().getName())
                 .setCause(ex)
                 .log("unexpected error processing update");
-        return new SendMessage(chatId, "Произошла непредвиденная ошибка. Попробуй позже.");
+        return new SendMessage(chatId, "Произошла непредвиденная ошибка. Попробуй позже");
     }
 }

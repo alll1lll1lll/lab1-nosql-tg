@@ -7,6 +7,8 @@ import com.pengrad.telegrambot.model.Update;
 import com.pengrad.telegrambot.request.SendMessage;
 import com.university.booking.client.BackendClient;
 import com.university.booking.dto.RoomDto;
+import com.university.booking.enums.PersonRole;
+import com.university.booking.service.dialog.StateService;
 import java.util.List;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Component;
@@ -15,10 +17,12 @@ import org.springframework.stereotype.Component;
 public class RoomsCommand extends Command {
 
     private final BackendClient client;
+    private final StateService stateService;
 
-    public RoomsCommand(BackendClient client) {
+    public RoomsCommand(BackendClient client, StateService stateService) {
         super(CommandType.ROOMS);
         this.client = client;
+        this.stateService = stateService;
     }
 
     @Override
@@ -31,10 +35,7 @@ public class RoomsCommand extends Command {
         String args = text.replaceFirst("(?i)^/rooms\\s*", "").trim().toLowerCase();
 
         if (args.isEmpty()) {
-            return new SendMessage(chatId,
-                    "Укажи тип помещения:\n" +
-                    "  /rooms classroom — аудитории\n" +
-                    "  /rooms coworking — коворкинги");
+            return RoomMenuHelper.typeMenu(chatId, "rooms", "Какие помещения показать?");
         }
 
         String[] parts = args.split("\\s+", 2);
@@ -42,12 +43,15 @@ public class RoomsCommand extends Command {
         String building = parts.length > 1 ? parts[1].toUpperCase() : null;
 
         if (!type.equals("classroom") && !type.equals("coworking")) {
-            return new SendMessage(chatId, "Неверный тип. Используй classroom или coworking.");
+            return RoomMenuHelper.typeMenu(chatId, "rooms", "Неверный тип. Выбери:");
         }
 
         String roomType = type.equals("classroom") ? "CLASSROOM" : "COWORKING";
+        String label = type.equals("classroom") ? "Аудитории" : "Коворкинги";
+        PersonRole role = stateService.get(chatId).getPersonRole();
         List<RoomDto> all = client.getRooms().stream()
                 .filter(r -> r.getType().equals(roomType))
+                .filter(r -> r.isVisibleTo(role))
                 .collect(Collectors.toList());
 
         if (all.isEmpty()) {
@@ -55,8 +59,7 @@ public class RoomsCommand extends Command {
         }
 
         if (building == null) {
-            String label = type.equals("classroom") ? "Аудитории" : "Коворкинги";
-            return new SendMessage(chatId, RoomMenuHelper.buildBuildingMenu(label, "rooms", type, all));
+            return RoomMenuHelper.buildingMenu(chatId, label, "rooms", type, all);
         }
 
         String prefix = building + "-";
@@ -65,15 +68,13 @@ public class RoomsCommand extends Command {
                 .collect(Collectors.toList());
 
         if (filtered.isEmpty()) {
-            return new SendMessage(chatId, "Помещения не найдены для корпуса: " + building);
+            return RoomMenuHelper.buildingMenu(chatId, "Помещения не найдены для корпуса " + building + ". " + label,
+                    "rooms", type, all);
         }
 
         String buildingName = RoomMenuHelper.BUILDING_NAMES.getOrDefault(building, building);
-        String label = roomType.equals("CLASSROOM") ? "Аудитории" : "Коворкинги";
-        StringBuilder sb = new StringBuilder(label + " (" + buildingName + "):\n\n");
-        for (RoomDto r : filtered) {
-            sb.append(RoomMenuHelper.formatRoomLine(r)).append("\n");
-        }
-        return new SendMessage(chatId, sb.toString().trim());
+        return RoomMenuHelper.roomMenu(chatId, label + " (" + buildingName + "):", filtered,
+                "Нажми на комнату, чтобы увидеть её занятость на сегодня.",
+                r -> "/room " + r.getId());
     }
 }

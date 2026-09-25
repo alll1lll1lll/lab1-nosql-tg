@@ -5,6 +5,9 @@ import com.university.booking.client.BackendClient;
 import com.university.booking.dto.BookingCreateRequest;
 import com.university.booking.dto.BookingDto;
 import com.university.booking.dto.CategoryDto;
+import com.university.booking.dto.RoomDto;
+import com.university.booking.enums.PersonRole;
+import com.university.booking.exception.ResourceNotFoundException;
 import com.university.booking.state.Context;
 import com.university.booking.state.State;
 import java.time.LocalDate;
@@ -50,6 +53,18 @@ public class BookingDialogHandler implements DialogStageHandler {
     }
 
     private SendMessage handleRoom(long chatId, String roomId) {
+        try {
+            RoomDto room = client.getRoom(roomId);
+            Context ctx = stateService.get(chatId);
+            if (room.isTeacherOnly() && ctx.getPersonRole() == PersonRole.STUDENT) {
+                return new SendMessage(chatId,
+                        "Эта комната доступна только для преподавателей. Введи другой ID:");
+            }
+        } catch (ResourceNotFoundException e) {
+            return new SendMessage(chatId,
+                    "Комната с ID «" + roomId + "» не найдена. Введи другой ID:");
+        }
+
         List<CategoryDto> cats = client.getCategories();
         if (cats.isEmpty()) {
             stateService.reset(chatId);

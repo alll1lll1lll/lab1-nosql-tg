@@ -9,4 +9,5 @@ public class RoomDto {
     private String type;
     private int capacity;
     private String location;
+    private boolean teacherOnly;
 }

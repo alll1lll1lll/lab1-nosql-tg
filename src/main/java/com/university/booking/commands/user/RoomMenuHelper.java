@@ -18,10 +18,9 @@ final class RoomMenuHelper {
     static {
         BUILDING_NAMES.put("K49", "Кронверкский пр., 49");
         BUILDING_NAMES.put("L9",  "ул. Ломоносова, 9");
-        BUILDING_NAMES.put("GR",  "ул. Гривцова, 1/2");
+        BUILDING_NAMES.put("GR",  "пер. Гривцова, 14-16");
         BUILDING_NAMES.put("G12", "ул. Гастелло, 12");
         BUILDING_NAMES.put("B14", "Биржевая линия, 14");
-        BUILDING_NAMES.put("TB",  "Пространство T-Bank");
     }
 
     private RoomMenuHelper() {}

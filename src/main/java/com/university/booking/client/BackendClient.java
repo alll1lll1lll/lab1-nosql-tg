@@ -2,7 +2,7 @@ package com.university.booking.client;
 
 import com.university.booking.dto.BookingDto;
 import com.university.booking.dto.CartDto;
-import com.university.booking.dto.CartItemRequest;
+import com.university.booking.dto.BookingRequestDto;
 import com.university.booking.dto.CategoryDto;
 import com.university.booking.dto.ErrorResponseDto;
 import com.university.booking.dto.PersonCreateRequest;
@@ -12,6 +12,7 @@ import com.university.booking.dto.RoomScheduleDto;
 import com.university.booking.exception.AccessDeniedException;
 import com.university.booking.exception.BackendException;
 import com.university.booking.exception.BotException;
+import com.university.booking.exception.FeatureUnavailableException;
 import com.university.booking.exception.NotRegisteredException;
 import com.university.booking.exception.ResourceNotFoundException;
 import java.time.LocalDate;
@@ -64,6 +65,11 @@ public class BackendClient {
                 () -> requireBody(restTemplate.getForObject(baseUrl + "/api/bookings/" + id, BookingDto.class)));
     }
 
+    public BookingDto createBooking(BookingRequestDto request) {
+        return call("POST /api/bookings", null,
+                () -> requireBody(restTemplate.postForObject(baseUrl + "/api/bookings", request, BookingDto.class)));
+    }
+
     public BookingDto submitBooking(String id) {
         return call("PUT /api/bookings/" + id + "/submit", id, () -> requireBody(restTemplate.exchange(
                 baseUrl + "/api/bookings/" + id + "/submit", HttpMethod.PUT, null, BookingDto.class).getBody()));
@@ -111,7 +117,7 @@ public class BackendClient {
                 () -> requireBody(restTemplate.getForObject(baseUrl + "/api/cart", CartDto.class)));
     }
 
-    public CartDto addToCart(CartItemRequest request) {
+    public CartDto addToCart(BookingRequestDto request) {
         return call("POST /api/cart/items", null,
                 () -> requireBody(restTemplate.postForObject(baseUrl + "/api/cart/items", request, CartDto.class)));
     }
@@ -145,7 +151,7 @@ public class BackendClient {
             throw new BotException(errorMessage(e));
         } catch (HttpServerErrorException.ServiceUnavailable e) {
             log.atWarn().addKeyValue("endpoint", endpoint).log("backend feature unavailable");
-            throw new BotException(errorMessage(e));
+            throw new FeatureUnavailableException(errorMessage(e));
         } catch (RestClientException e) {
             log.atError().addKeyValue("endpoint", endpoint).setCause(e).log("backend request failed");
             throw new BackendException();

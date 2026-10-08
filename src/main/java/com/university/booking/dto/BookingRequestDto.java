@@ -7,7 +7,7 @@ import lombok.Data;
 
 @Data
 @Builder
-public class CartItemRequest {
+public class BookingRequestDto {
     private String roomId;
     private String categoryId;
     private String eventName;

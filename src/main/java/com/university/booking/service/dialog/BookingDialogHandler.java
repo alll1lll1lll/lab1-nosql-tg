@@ -6,10 +6,12 @@ import com.pengrad.telegrambot.request.SendMessage;
 import com.university.booking.client.BackendClient;
 import com.university.booking.commands.user.CartFormatter;
 import com.university.booking.dto.CartDto;
-import com.university.booking.dto.CartItemRequest;
+import com.university.booking.dto.BookingDto;
+import com.university.booking.dto.BookingRequestDto;
 import com.university.booking.dto.CategoryDto;
 import com.university.booking.dto.RoomDto;
 import com.university.booking.dto.RoomScheduleDto;
+import com.university.booking.exception.FeatureUnavailableException;
 import com.university.booking.exception.ResourceNotFoundException;
 import com.university.booking.state.Context;
 import com.university.booking.state.State;
@@ -191,7 +193,7 @@ public class BookingDialogHandler implements DialogStageHandler {
     }
 
     private SendMessage handlePhone(long chatId, String phone, Context ctx) {
-        CartItemRequest req = CartItemRequest.builder()
+        BookingRequestDto req = BookingRequestDto.builder()
                 .roomId(ctx.getBookRoomId())
                 .categoryId(ctx.getBookCategoryId())
                 .eventName(ctx.getBookEventName())
@@ -201,12 +203,22 @@ public class BookingDialogHandler implements DialogStageHandler {
                 .participantCount(ctx.getBookParticipants())
                 .contactPhone(phone)
                 .build();
-        CartDto cart;
         try {
-            cart = client.addToCart(req);
+            return addToCart(chatId, req);
+        } catch (FeatureUnavailableException e) {
+
+            log.atWarn()
+                    .addKeyValue("event", "cart_unavailable_fallback")
+                    .addKeyValue("chat_id", chatId)
+                    .log("cart unavailable, creating booking directly");
+            return createDirectly(chatId, req);
         } finally {
             stateService.reset(chatId);
         }
+    }
+
+    private SendMessage addToCart(long chatId, BookingRequestDto req) {
+        CartDto cart = client.addToCart(req);
         log.atInfo()
                 .addKeyValue("event", "cart_item_added")
                 .addKeyValue("cart_size", cart.getItems().size())
@@ -217,6 +229,23 @@ public class BookingDialogHandler implements DialogStageHandler {
                 + "\nКорзина удалится автоматически через " + CartFormatter.formatTtl(cart.getTtlSeconds())
                 + ", если её не оформить.")
                 .replyMarkup(CartFormatter.cartActions());
+    }
+
+    private SendMessage createDirectly(long chatId, BookingRequestDto req) {
+        BookingDto booking = client.createBooking(req);
+        log.atInfo()
+                .addKeyValue("event", "booking_created_directly")
+                .addKeyValue("booking_id", booking.getId())
+                .addKeyValue("chat_id", chatId)
+                .log("booking created without cart");
+        return new SendMessage(chatId, "Временная корзина сейчас недоступна, поэтому заявка создана напрямую "
+                + "и сохранена как черновик.\n"
+                + "ID: " + booking.getId()
+                + "\nСтатус: " + booking.getStatus()
+                + "\n\nОтправьте её на рассмотрение администратору:")
+                .replyMarkup(Buttons.row(
+                        Buttons.button("Отправить на рассмотрение", "/submit " + booking.getId()),
+                        Buttons.button("Мои заявки", "/bookings")));
     }
 
     private SendMessage datePrompt(long chatId, String prompt) {

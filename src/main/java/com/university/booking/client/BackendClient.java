@@ -24,6 +24,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpMethod;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.client.HttpServerErrorException;
+import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 
@@ -141,13 +143,16 @@ public class BackendClient {
             throw new BotException("Слишком много запросов. Подождите минуту и попробуйте снова");
         } catch (HttpClientErrorException e) {
             throw new BotException(errorMessage(e));
+        } catch (HttpServerErrorException.ServiceUnavailable e) {
+            log.atWarn().addKeyValue("endpoint", endpoint).log("backend feature unavailable");
+            throw new BotException(errorMessage(e));
         } catch (RestClientException e) {
             log.atError().addKeyValue("endpoint", endpoint).setCause(e).log("backend request failed");
             throw new BackendException();
         }
     }
 
-    private String errorMessage(HttpClientErrorException e) {
+    private String errorMessage(HttpStatusCodeException e) {
         try {
             ErrorResponseDto body = e.getResponseBodyAs(ErrorResponseDto.class);
             if (body != null && body.getErrors() != null && !body.getErrors().isEmpty()) {
